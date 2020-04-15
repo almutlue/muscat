@@ -6,7 +6,7 @@
 #' across 2 experimental conditions from a real scRNA-seq data set.
 #' 
 #' @param x a \code{\link[SingleCellExperiment]{SingleCellExperiment}}.
-#' @param nc,ns,nk # of cells, samples and clusters to simulate. 
+#' @param nc,ns,nk,nb # of cells, samples, clusters and batches to simulate. 
 #' @param probs a list of length 3 containing probabilities of a cell belonging
 #'   to each cluster, sample, and group, respectively. List elements must be 
 #'   NULL (equal probabilities) or numeric values in [0, 1] that sum to 1.
@@ -27,16 +27,35 @@
 #'   Should be of length \code{nlevels(x$cluster_id)} with 
 #'   \code{levels(x$cluster_id)} as names. 
 #'   Defaults to factor of 1 for all clusters.
+#' @param rel_be numeric vector of relative batch logFCs for each batch. 
+#'   Should be of length \code{nb}. Defaults to factor of 1 for all batches.
+#' @param rel_be_c numeric vector of relative batch logFCs for each cluster. 
+#'   Should be of length \code{nk}. 
+#'   Defaults to factor of 1 for all clusters.
+#' @param lfc_be numeric. Standard deviation of the normal distribution to 
+#'   sample batch logFCs from. Defaults to 0 (no batch effect) and will be 
+#'   ignored if estimated logFCs from the reference are provided.
 #' @param phylo_tree newick tree text representing cluster relations 
 #'   and their relative distance. An explanation of the syntax can be found 
 #'   \href{http://evolution.genetics.washington.edu/phylip/newicktree.html}{here}. 
 #'   The distance between the nodes, except for the original branch, will be 
 #'   translated in the number of shared genes between the clusters belonging to 
-#'   these nodes (this relation is controlled with \code{phylo_pars}). 
-#'   The distance between two clusters is defined as the sum 
-#'   of the branches lengths separating them. 
+#'   these nodes (this relation is controlled with \code{phylo_pars}). The distance 
+#'   between two clusters is defined as the sum of the branches lengths 
+#'   separating them. 
 #' @param phylo_pars vector of length 2 providing the parameters that control 
-#'   the number of type genes. Passed to an exponential PDF (see details).
+#'   the number of type genes. Passed to an exponential's PDF:
+#'   \code{N = #genes x gamma1 * e^(-gamma2 x dist)},
+#'   
+#'   \itemize{
+#'   \item  \code{gamma1} is the parameter that controls the percentage of shared 
+#'   genes between the nodes. By default 0.1 if a tree is given, meaning that 
+#'   maximum 10% of the genes can be used as type genes (if gamma2 = 0). 
+#'   However it's advised to tune it depending on the input \code{prep_sce}. 
+#'   \code{gamma2} is the 'penalty' of increasing the distance between clusters 
+#'   (\code{dist}, defined by \code{phylo_tree}), applied on the number of 
+#'   shared genes. Default to 3. 
+#'   }
 #'   
 #' @param ng # of genes to simulate. Importantly, for the library sizes 
 #'   computed by \code{\link{prepSim}} (= \code{exp(x$offset)}) to make sense, 
@@ -47,45 +66,13 @@
 #'   simulation despite \code{ng != nrow(x)}.
 #'   
 #' @details The simulation of type genes can be performed in 2 ways; 
-#'   (1) via \code{p_type} to simulate independant clusters, OR 
-#'   (2) via \code{phylo_tree} to simulate a hierarchical cluster structure.
-#'   
-#'   For (1), a subset of \code{p_type} \% of genes are selected per cluster
-#'   to use a different references genes than the remainder of clusters,
-#'   giving rise to cluster-specific NB means for count sampling.
-#'   
-#'   For (2), the number of shared/type genes at each node 
-#'   are given by \code{a*G*e^(-b*d)}, where \itemize{
-#'   \item{\code{a} -- controls the percentage of shared genes between nodes.
-#'   By default, at most 10\% of the genes are reserved as type genes
-#'   (when \code{b} = 0). However, it is advised to tune this parameter 
-#'   depending on the input \code{prep_sce}.}
-#'   \item{\code{b} -- determines how the number of shared genes 
-#'   decreases with increasing distance d between clusters 
-#'   (defined through \code{phylo_tree}).}}
+#'   (1) by defining \code{p_type} and thus simulating independant clusters, OR 
+#'   (2) by defining both \code{phylo_tree} and \code{phylo_pars}, which will 
+#'   simulate a hierarchical structure between the clusters.
 #'  
 #' @return a \code{\link[SingleCellExperiment]{SingleCellExperiment}}
-#'   containing multiple clusters & samples across 2 groups 
-#'   as well as the following metadata: \describe{
-#'   \item{cell metadata (\code{colData(.)})}{a \code{DataFrame} containing,
-#'   containing, for each cell, it's cluster, sample, and group ID.}
-#'   \item{gene metadata (\code{rowData(.)})}{a \code{DataFrame} containing, 
-#'   for each gene, it's \code{class} (one of "state", "type", "none") and 
-#'   specificity (\code{specs}; NA for genes of type "state", otherwise 
-#'   a character vector of clusters that share the given gene).}
-#'   \item{experiment metadata (\code{metadata(.)})}{
-#'   \describe{
-#'   \item{\code{experiment_info}}{a \code{data.frame} 
-#'   summarizing the experimental design.}
-#'   \item{\code{n_cells}}{the number of cells for each sample.}
-#'   \item{\code{gene_info}}{a \code{data.frame} containing, for each gene
-#'   in each cluster, it's differential distribution \code{category},
-#'   mean \code{logFC} (NA for genes for categories "ee" and "ep"),
-#'   gene used as reference (\code{sim_gene}), dispersion \code{sim_disp},
-#'   and simulation means for each group \code{sim_mean.A/B}.}
-#'   \item{\code{ref_sids/kidskids}}{the sample/cluster IDs used as reference.}
-#'   \item{\code{args}}{a list of the function call's input arguments.}}}}
-#'   
+#'   containing multiple clusters & samples across 2 groups.
+#' 
 #' @examples
 #' data(sce)
 #' library(SingleCellExperiment)
@@ -94,7 +81,7 @@
 #' ref <- prepSim(sce)
 #' 
 #' # simulate data
-#' (sim <- simData(ref, nc = 200,
+#' (sim <- simData(ref, nc = 10,
 #'   p_dd = c(0.9, 0, 0.1, 0, 0, 0),
 #'   ng = 100, force = TRUE,
 #'   probs = list(NULL, NULL, c(1, 0))))
@@ -137,7 +124,7 @@
 #' # view information about shared 'type' genes
 #' table(rowData(sim)$class)
 #' 
-#' @author Helena L Crowell & Anthony Sonrel
+#' @author Helena L Crowell
 #' 
 #' @references 
 #' Crowell, HL, Soneson, C, Germain, P-L, Calini, D, 
@@ -157,10 +144,11 @@
 #' @importFrom S4Vectors split unfactor
 #' @export
 
-simData <- function(x, nc = 2e3, ns = 3, nk = 3,
+simData <- function(x, nc = 2e3, ns = 3, nk = 3, nb = 2,
     probs = NULL, p_dd = diag(6)[1, ], paired = FALSE,
     p_ep = 0.5, p_dp = 0.3, p_dm = 0.5,
     p_type = 0, lfc = 2, rel_lfc = NULL, 
+    rel_be = NULL, rel_be_c = NULL, lfc_be = 0,
     phylo_tree = NULL, phylo_pars = c(ifelse(is.null(phylo_tree), 0, 0.1), 3),
     ng = nrow(x), force = FALSE) {
     
@@ -182,11 +170,13 @@ simData <- function(x, nc = 2e3, ns = 3, nk = 3,
     # reference IDs
     nk0 <- length(kids0 <- set_names(levels(x$cluster_id)))
     ns0 <- length(sids0 <- set_names(levels(x$sample_id)))
+    nb0 <- length(bids0 <- set_names(levels(x$batch_id)))
     
     # simulation IDs
     nk <- length(kids <- set_names(paste0("cluster", seq_len(nk))))
     sids <- set_names(paste0("sample", seq_len(ns)))
     gids <- set_names(c("A", "B"))
+    bids <- set_names(paste0("batch", seq_len(nb)))
     
     # sample reference clusters & samples
     ref_kids <- setNames(sample(kids0, nk, nk > nk0), kids)
@@ -200,6 +190,15 @@ simData <- function(x, nc = 2e3, ns = 3, nk = 3,
             sample(sids0, ns, ns > ns0))
     }
     dimnames(ref_sids) <- list(sids, gids)
+    ref_bids <- setNames(sample(bids0, nb, nb > nb0), bids)
+    
+    # match batch and sample (if else to prevent sampling from 1 batch only)
+    if (ns > nb) {
+        s_by_b <- setNames(c(bids, sample(bids, ns-nb, TRUE)), sids)
+    } else {
+        s_by_b <- setNames(sample(bids, ns), sids)
+    }
+    
     
     if (is.null(rel_lfc)) 
         rel_lfc <- rep(1, nk)
@@ -208,6 +207,12 @@ simData <- function(x, nc = 2e3, ns = 3, nk = 3,
     } else {
         stopifnot(names(rel_lfc) %in% kids0)
     }
+    if (is.null(rel_be))
+        rel_be <- rep(1, nb) 
+    names(rel_be) <- bids
+    if (is.null(rel_be_c))
+        rel_be_c <- rep(1, nk)
+    names(rel_be_c) <- kids
     
     # initialize count matrix
     gs <- paste0("gene", seq_len(ng))
@@ -262,6 +267,68 @@ simData <- function(x, nc = 2e3, ns = 3, nk = 3,
         lapply(unfactor(cats), function(c) 
             gs_by_k[[k]][gs_idx[[c, k]]])) 
     
+    #logFC of batch effect
+    # ==========================================================================
+    # Test if logFC are estimated from real data during prepSim and provided 
+    # within rowData slot. If so pick a reference batch and get logFcs for other
+    # batches for each cluster from rowData. If more cluster are initiated than 
+    # present in rowData, additional ones are generated from the present ones. 
+    # Estimated batch effects can only be used if enough reference batches are
+    # present.
+    # --------------------------------------------------------------------------
+    lfc_all <- names(rowData(x))[grepl("logFC", names(rowData(x)))]
+    batch_est <- nb0 >= nb & nb > 0 & length(lfc_all) > 0 & lfc_be == 0
+    
+    if (batch_est) {
+        ref <- bids0[1]              
+        lfc_ref <- lfc_all[grepl(paste0(ref,"-"), lfc_all)]
+        lfc_b <- lapply(bids, function(b){
+            br <- ref_bids[b]
+            lfcb <- lfc_ref[grepl(br, lfc_ref)]
+            lfcb <- .est_lfc_batch(lfcb, kids)
+            lfcb_kc <- vapply(kids, function(k)
+                lapply(cats, function(c){
+                    n_gskc <- length(gskc <- gs_by_kc[[k]][[c]])
+                    if (br %in% ref) {
+                        lfc_kc <- rep(0, n_gskc) %>% set_names(gskc)
+                    }else{
+                        lfc_kc <- lfcb[seq_len(n_gskc), paste0("logFC_", k)] %>% 
+                            set_names(gskc)
+                        lfc_kc <- lfc_kc * rel_be[[b]] * rel_be_c[[k]]
+                    }
+                    return(lfc_kc)
+                }), vector("list", length(cats))) %>% set_rownames(cats)
+            lfcb_kc
+        })
+    }
+    
+    # ==========================================================================
+    # If logFcs are not provided, but a batch effect is defined in the 
+    # lfc_be parameter this is used to sample a clusterspecific batch from a 
+    # specified distribution.
+    # --------------------------------------------------------------------------
+    if (nb0 < nb & lfc_be == 0) {
+        warning("No batch effect included into simulation.
+                To few batches in reference. Please simulate less batches
+                or specify 'lfc_be'.")
+    }
+    
+    if (!batch_est) {
+        lfc_b <- lapply(bids, function(b){
+            lfcb <- .sim_lfc_be(lfc_be, gs)
+            #celltype_specific logFC
+            lfcb_kc <- vapply(kids, function(k)
+                lapply(cats, function(c) {
+                    lfc_kc <- lfcb[names(gs_by_kc[[k]][[c]])]
+                    lfc_kc <- lfc_kc * rel_be[[b]] * rel_be_c[[k]]
+                    names(lfc_kc) <- gs_by_kc[[k]][[c]]
+                    lfc_kc
+                }), vector("list", length(cats))) %>%
+                set_rownames(cats)
+            lfcb_kc
+        })
+    }
+    
     # sample logFCs
     lfc <- vapply(kids, function(k) 
         lapply(unfactor(cats), function(c) { 
@@ -296,6 +363,7 @@ simData <- function(x, nc = 2e3, ns = 3, nk = 3,
             s0 <- ref_sids[s, ]
             k0 <- ref_kids[k]
             cs0 <- cs_by_ks[[k0]][s0]
+            b <- s_by_b[s]
             
             # get output cell indices
             ci <- cs_idx[[k]][[s]]
@@ -309,9 +377,13 @@ simData <- function(x, nc = 2e3, ns = 3, nk = 3,
                 gs0 <- gs_by_kc[[k]][[c]] 
                 gi <- gs_idx[[c, k]]
                 
+                #Add  batch specific logfoldchange
+                lfc_be_s <- lfc_b[[b]][[c, k]][gs0] 
+                lfc_be_s[is.na(lfc_be_s)] <- 0
+                
                 # get NB parameters
-                m_g1 <- m[[s0[[1]]]][gs0, cs_g1, drop = FALSE]
-                m_g2 <- m[[s0[[2]]]][gs0, cs_g2, drop = FALSE]
+                m_g1 <- m[[s0[[1]]]][gs0, cs_g1, drop = FALSE] * 2^lfc_be_s
+                m_g2 <- m[[s0[[2]]]][gs0, cs_g2, drop = FALSE] * 2^lfc_be_s
                 d_kc <- d[gs0]
                 lfc_kc <- lfc[[c, k]]
                 
@@ -324,6 +396,13 @@ simData <- function(x, nc = 2e3, ns = 3, nk = 3,
         }
     }
     # construct gene metadata table storing ------------------------------------
+    # adjust lfc_be to summary table
+    red_lfc_be <- lapply(bids, function(b){
+            lfc_red <- lfc_b[[b]] %>% unlist()
+    }) %>% bind_cols() %>% 
+        set_colnames(paste0("lfc_be_", colnames(.))) %>%
+        mutate("gene" = rep(gs, nk), "cluster_id" = rep(kids, each = length(gs)))
+    
     # gene | cluster_id | category | logFC, gene, disp, mean used for sim.
     gi <- data.frame(
         gene = unlist(gs_idx),
@@ -333,36 +412,38 @@ simData <- function(x, nc = 2e3, ns = 3, nk = 3,
         sim_gene = unlist(gs_by_kc),
         sim_disp = d[unlist(gs_by_kc)]) %>% 
         mutate_at("gene", as.character)
+
+    # add lfc_be
+    gi <- full_join(gi, red_lfc_be, by = c("gene", "cluster_id"))
     # add true simulation means
     sim_mean <- sim_mean %>%
         map(bind_cols) %>% 
         bind_rows(.id = "cluster_id") %>% 
+        mutate_at("cluster_id", factor) %>% 
         mutate(gene = rep(gs, nk))
     gi <- full_join(gi, sim_mean, by = c("gene", "cluster_id")) %>% 
-        rename("sim_mean.A" = "A", "sim_mean.B" = "B") %>% 
-        mutate_at("cluster_id", factor)
+        dplyr::rename("sim_mean.A" = "A", "sim_mean.B" = "B")
     # reorder
     o <- order(as.numeric(gsub("[a-z]", "", gi$gene)))
     gi <- gi[o, ]; rownames(gi) <- NULL
     
     # construct SCE ------------------------------------------------------------
-    # cell metadata including group, sample, cluster IDs
+    # cell metadata including group, sample, batch, cluster IDs
+    cd <- cd %>% mutate("batch_id" = recode(as.factor(sample_id), !!!s_by_b))
     cd$group_id <- droplevels(cd$group_id)
     cd$sample_id <- factor(paste(cd$sample_id, cd$group_id, sep = "."))
     m <- match(levels(cd$sample_id), cd$sample_id)
     gids <- cd$group_id[m]
     o <- order(gids)
     sids <- levels(cd$sample_id)[o]
-    cd <- cd %>% 
-        mutate_at("cluster_id", factor, levels = kids) %>% 
-        mutate_at("sample_id", factor, levels = sids) 
+    ei <- data.frame(sample_id = sids, group_id = gids[o])
+    cd <- cd %>% mutate_at("sample_id", factor, levels = sids)
     # gene metadata storing gene classes & specificities
     rd <- DataFrame(class = factor(class, 
         levels = c("state", "shared", "type")))
     rd$specs <- as.list(specs)
     # simulation metadata including used reference samples/cluster, 
     # list of input arguments, and simulated genes' metadata
-    ei <- data.frame(sample_id = sids, group_id = gids[o])
     md <- list(
         experiment_info = ei,
         n_cells = table(cd$sample_id),

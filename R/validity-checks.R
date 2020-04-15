@@ -114,6 +114,7 @@
     stopifnot(
         is.numeric(u$nc), length(u$nc) == 1, u$nc > 0, as.integer(u$nc) == u$nc,
         is.numeric(u$nk), length(u$nk) == 1, u$nk > 0, as.integer(u$nk) == u$nk,
+        is.numeric(u$nb), length(u$nb) == 1, u$nb > 0, as.integer(u$nb) == u$nb,
         is.numeric(u$ns), length(u$ns) %in% c(1, 2), u$ns > 0, as.integer(u$ns) == u$ns,
         is.numeric(u$p_dd), length(u$p_dd) == 6, sum(u$p_dd) == 1, u$p_dd >= 0, u$p_dd <= 1,
         is.logical(u$paired), length(u$paired) == 1,
@@ -122,12 +123,19 @@
         is.numeric(u$p_dm), length(u$p_dm) == 1, u$p_dm > 0, u$p_dm < 1,
         is.numeric(u$p_type), length(u$p_type) == 1, u$p_type >= 0, u$p_type <= 1,
         is.numeric(u$lfc), is.numeric(u$lfc), length(u$lfc) == 1, u$lfc >= 1,
+        is.numeric(u$lfc_be), length(u$lfc_be) == 1, u$lfc_be >= 0,
         is.numeric(u$ng), length(u$ng) == 1, u$ng > 0, as.integer(u$ng) == u$ng,
         is.logical(u$force), length(u$force) == 1,
         is.numeric(u$phylo_pars), length(u$phylo_pars) == 2, u$phylo_pars >= 0)
     if (!is.null(u$rel_lfc))
         stopifnot(is.numeric(u$rel_lfc), 
             length(u$rel_lfc) == u$nk, u$rel_lfc >= 0)
+    if (!is.null(u$rel_lfc))
+        stopifnot(is.numeric(u$rel_be), 
+                  length(u$rel_be) == u$nb, u$rel_be >= 0)
+    if (!is.null(u$rel_be_c))
+        stopifnot(is.numeric(u$rel_be_c), 
+                  length(u$rel_be_c) == u$nk, u$rel_be_c >= 0)
     return(list(nk = u$nk))
 }
 

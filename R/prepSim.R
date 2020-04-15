@@ -46,14 +46,13 @@
 #' data(sce)
 #' library(SingleCellExperiment)
 #' 
-#' ref <- prepSim(sce)
+#' sce2 <- prepSim(sce)
 #' 
 #' # nb. of genes/cells before vs. after
-#' ns <- cbind(before = dim(sce), after = dim(ref)) 
-#' rownames(ns) <- c("#genes", "#cells"); ns
+#' cbind(before = dim(sce), after = dim(sce2)) 
 #' 
-#' head(rowData(ref)) # gene parameters
-#' head(colData(ref)) # cell parameters
+#' head(rowData(sce2)) # gene parameters
+#' head(colData(sce2)) # cell parameters
 #' 
 #' @author Helena L Crowell
 #' 
@@ -75,7 +74,8 @@
 prepSim <- function(x, 
     min_count = 1, min_cells = 10, 
     min_genes = 100, min_size = 100, 
-    group_keep = NULL, verbose = TRUE) {
+    group_keep = NULL, verbose = TRUE,
+    batch = TRUE) {
     
     .check_sce(x, req_group = FALSE)
     stopifnot(is.numeric(min_count), 
@@ -134,6 +134,19 @@ prepSim <- function(x,
     y <- estimateDisp(y, mm)
     y <- glmFit(y, prior.count = 0)
     
+    
+    # add logFC of batch var (this is most realistic, but will only be done if
+    # a column with batch_id is in colData(x) and batch = TRUE
+    if ("batch_id" %in% colnames(colData(x))) {
+        if (batch) {
+            if (verbose)
+                message("Estimating batch log fold changes...")
+            x <- .get_batch_lfc(x)
+        }
+    } else {
+        colData(x)$batch_id <- as.factor(rep("batch1", ncol(x)))
+    }
+       
     # update row- & colData
     x$offset <- c(y$offset)
     rowData(x)$dispersion <- y$dispersion
